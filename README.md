@@ -1,0 +1,1 @@
+# LSQI-Challenge-2025
