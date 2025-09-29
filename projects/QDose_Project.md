@@ -15,7 +15,7 @@ contributors:
 - Scott Nie (UCLA) @snie5
 
 # github: JackNDiab/QDose
---> Project proposal is included as a pdf titled 'QDose_Submission.pdf'
+### Project proposal is included as a pdf titled "QDose_Submission.pdf"
 ---
 
 Our project aims to explore the advantages of using techniques form quantum computing and AI development at three separate stages of the PK/PD modeling and dosage prediction pipeline. We will look into learning a hamiltonian model, using quantum statistical methods for fitting, and then making future patient predictions via quantum neural-network techniques. All of these stages fit together in a cohesive workflow that we believe will enhance the efficacy of this process.
