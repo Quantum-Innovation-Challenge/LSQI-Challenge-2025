@@ -10,7 +10,7 @@ contributors:
   - Johannes Mosbacher (FHNW)
   - Martin Kuentz (FHNW)
   - Abdullah Kahraman (FHNW / SIB)
-  - Nicolas Piro (Independent)
+  - Nicolas Piro (Sony Advanced Visual Sensing AG (Zurich, Switzerland))
 
 github: tyrolize/paulis-pills
 # youtube_video: <add-id-after-upload>
