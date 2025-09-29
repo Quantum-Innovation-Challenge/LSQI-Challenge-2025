@@ -1,20 +1,20 @@
 ---
 number: 1 
-title: Team QuantumDose: Quantum-inspired Improvement in PK/PD Modeling and Prediction Pipeline
+title: Team QuantumDose: Quantum-inspired Improvement in PK-PD Modeling and Prediction Pipeline
 topic: general
 team_leads:
-  - Dr. Prineha Narang (UCLA) prineha@ucla.edu
+  - Dr. Prineha Narang (UCLA) @prineha
 
 contributors:
 
 - Jack Diab (UCLA) @JackNDiab
-- Byoungwoo Kang (UCLA) @
-- Nothando Khumalo (UCLA) nkhumalo@g.ucla.edu
-- Aman Mehta (UCLA) mehtaaman@ucla.edu
-- Dr. William Munizzi (UCLA) wmunizzi17@ucla.edu
-- Scott Nie (UCLA) nies@ucla.edu
+- Byoungwoo Kang (UCLA) @byoungwookan97
+- Nothando Khumalo (UCLA) @nkhumalo
+- Aman Mehta (UCLA) @themehtaphysical
+- Dr. William Munizzi (UCLA) @WMunizzi
+- Scott Nie (UCLA) @snie5
 
-# github: <your-github-account>/<your-repo-name>
+# github: JackNDiab/QDose
 
 ---
 
