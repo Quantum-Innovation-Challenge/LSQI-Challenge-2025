@@ -3,8 +3,8 @@ number: 1 # maintainers adjust
 title: Validating Few‑Sample Quantum ML for PK/PD Dose Selection
 topic: pkpd
 team_leads:
-  - Leena Anthony (FHNW) @Anthony-Leena
   - Artemiy Burov (FHNW) @tyrolize
+  - Leena Anthony (FHNW) @Anthony-Leena
 
 contributors:
   - Johannes Mosbacher (FHNW)
