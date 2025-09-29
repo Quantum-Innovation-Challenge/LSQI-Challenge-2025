@@ -1,12 +1,11 @@
 ---
 number: 1 # maintainers adjust
-title: Pauli’s Pills — Validating Few‑Sample Quantum ML for PK/PD Dose Selection
+title: Validating Few‑Sample Quantum ML for PK/PD Dose Selection
 topic: pkpd
 team_leads:
   - Leena Anthony (FHNW) @Anthony-Leena
   - Artemiy Burov (FHNW) @tyrolize
 
-# Comment these lines to hide them
 contributors:
   - Johannes Mosbacher (FHNW)
   - Martin Kuentz (FHNW)
@@ -14,12 +13,10 @@ contributors:
   - Nicolas Piro (Sony Advanced Visual Sensing AG (Zurich, Switzerland))
 
 github: tyrolize/paulis-pills
-# youtube_video: <add-id-after-upload>
+# youtube_video: <add-id-when-ready>
 ---
 
-**Summary.** We adapt **few‑sample QML generalization** protocols (from medical imaging) to **PK/PD** dose‑selection. We define patient‑level few‑shot splits, learning curves, calibration & variance reporting, and compare **quantum kernels (QSVM/QKRR)** and **tensor‑network** regressors to a **population PK/PD** baseline on the synthetic dataset. Focus: **transparent generalization** under small‑N constraints, with ablations and explicit **resource estimates**.
+**QCNN-only plan.** A mechanistic PK core simulates regimen-aware exposure curves \(C(t)\) (daily/weekly). A parameter-efficient **Quantum Convolutional Neural Network (QCNN)** with mid-circuit pooling predicts the probability that all PD values remain below a clinical threshold across a steady-state window. We emphasise small-\(N\) validation: patient-level k-fold, learning curves, bootstrap CIs, calibration, and ablations.
 
 **Official project participants:** Leena Anthony (FHNW), Artemiy Burov (FHNW).  
 **Links:** Code & docs — https://github.com/tyrolize/paulis-pills
-
-**References:** to be added in the Phase 1 report.
