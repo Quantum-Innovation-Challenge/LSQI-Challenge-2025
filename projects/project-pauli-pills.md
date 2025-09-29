@@ -1,6 +1,6 @@
 **Team:** pauli's pills
 
-**Update (approach):** We switched to a **pure QCNN** Phase‑1 plan. A mechanistic PK core simulates regimen‑aware exposure curves \(C(t)\), and a parameter‑efficient **Quantum Convolutional Neural Network (QCNN)** with mid‑circuit pooling predicts the probability that all PD values stay below a clinical threshold across a steady‑state window. We focus on **few‑sample generalization** with patient‑level k‑fold, learning curves, bootstrap CIs, and calibration.
+**Update:** We follow a **QCNN** Phase‑1 plan. A mechanistic PK core simulates regimen‑aware exposure curves \(C(t)\), and a parameter‑efficient **Quantum Convolutional Neural Network (QCNN)** with mid‑circuit pooling predicts the probability that all PD values stay below a clinical threshold across a steady‑state window. We focus on **few‑sample generalization** with patient‑level k‑fold, learning curves, bootstrap CIs, and calibration.
 
 **Team leads / official participants (2):**
 - Artemiy Burov (FHNW) — @tyrolize
