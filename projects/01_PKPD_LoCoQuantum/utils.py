@@ -74,10 +74,10 @@ def train_model(model, noise_prediction, train_loader, val_loader=None, num_epoc
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {train_loss/len(train_loader)}")
             if val_loader: 
                 test_loss = test_model(model, noise_prediction, val_loader, device)
-                if test_loss < test_loss_record:
-                    if model_save_path is not None:
-                        torch.save(model.state_dict(), model_save_path)
-                        test_loss_record = test_loss
+#                 if test_loss < test_loss_record:
+#                     if model_save_path is not None:
+#                         torch.save(model.state_dict(), model_save_path)
+#                         test_loss_record = test_loss
                     
 def test_model(model, noise_prediction, test_loader, device):
     model.eval()  # Set the model to evaluation mode
@@ -302,7 +302,7 @@ def sde_solver(sde, initial_state, time_span):
     noise_trajectory = []
 
     for t in time_span[1:]:
-        drift = sde.f(t, current_state)
+        drift = sde.f(t.unsqueeze(0), current_state)
         diffusion = sde.g(t, current_state)
         noise = torch.randn_like(current_state) * torch.sqrt(dt)
         current_state = current_state + drift * dt + diffusion * noise

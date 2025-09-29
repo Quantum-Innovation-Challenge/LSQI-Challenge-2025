@@ -1,6 +1,17 @@
 from quantum_models import *
+import torch
+import math
+import time
 
-NUM_FREQS = 10
+import matplotlib.pyplot as plt
+import numpy as np
+from torchdyn.core import NeuralODE
+from torch import optim
+import torch.functional as F
+
+
+PE_BASE = 0.012 # 0.012615662610100801
+NUM_FREQS = 4
 
 class torch_wrapper_tv(torch.nn.Module):
     """Wraps model to torchdyn compatible format."""
@@ -92,20 +103,6 @@ def metrics_calculation(pred, true, metrics=['mse_loss'], cutoff=-0.91, map_idx 
 
     return loss_D
 
-import torch
-import math
-import time
-
-import matplotlib.pyplot as plt
-import numpy as np
-from torchdyn.core import NeuralODE
-from torch import optim
-import torch.functional as F
-
-
-PE_BASE = 0.012 # 0.012615662610100801
-NUM_FREQS = 4
-
 def mse_loss(pred, true):
     return torch.mean((pred - true) ** 2)
 
@@ -145,6 +142,7 @@ class MLP_conditional_memory(torch.nn.Module):
                  conditional=False,  
                  time_dim = NUM_FREQS * 2,
                  clip = None,
+                 model_type='quantum'
                  ):
         super().__init__()
         self.time_varying = time_varying
@@ -155,15 +153,25 @@ class MLP_conditional_memory(torch.nn.Module):
         self.memory = memory
         self.dim = dim
         self.indim = dim + (time_dim if time_varying else 0) + (self.treatment_cond if conditional else 0) + (dim * memory)
-        self.net = torch.nn.Sequential(
-           torch.nn.Linear(self.indim, w),
-#             torch.nn.Tanh(),
-            QuantumEntanglingLinearVectorized(w),
-#             QuantumEntanglingLinear_new(w),
-#             QuantumEntanglingLinear(w),
-            torch.nn.SELU(),
-           torch.nn.Linear(w,self.out_dim),
-        )
+        if model_type == 'quantum':
+            self.net = torch.nn.Sequential(
+               torch.nn.Linear(self.indim, w),
+               QuantumEntanglingLinearVectorized(w),
+               torch.nn.SELU(),
+               torch.nn.Linear(w,self.out_dim),
+            )
+        else:
+            self.net = torch.nn.Sequential(
+               torch.nn.Linear(self.indim, w),
+               torch.nn.SELU(),
+               torch.nn.Linear(w, w),
+               torch.nn.SELU(),
+               torch.nn.Linear(w, w),
+               torch.nn.SELU(),
+               torch.nn.Linear(w, w),
+               torch.nn.SELU(),
+               torch.nn.Linear(w,self.out_dim),
+            )
         self.default_class = 0
         self.clip = clip
 
@@ -198,16 +206,17 @@ class MLP_conditional_memory(torch.nn.Module):
             vt = (x1_coord - x_coord)/(pred_time_till_t1)
         else:
             vt = (x1_coord - x_coord)/torch.clip((pred_time_till_t1),min=self.clip)
-
         final_vt = torch.cat([vt, torch.zeros_like(x[:,self.dim:-1])], dim=1)
         return final_vt
 
 class MLP_Cond_Memory_Module(torch.nn.Module):
     def __init__(self, treatment_cond, memory=3, dim=2, w=64, time_varying=True, conditional=True, lr=1e-6, sigma=0.1, 
-                 loss_fn=mse_loss, metrics=['mse_loss', 'l1_loss'], implementation="ODE", sde_noise=0.1, clip=None, naming=None):
+                 loss_fn=mse_loss, metrics=['mse_loss', 'l1_loss'], implementation="ODE", sde_noise=0.1, clip=None, naming=None,
+                model_type='quantum'):
         super().__init__()
+        assert model_type in ['quantum', 'classic']
         self.model = MLP_conditional_memory(dim=dim, w=w, time_varying=time_varying, conditional=conditional, 
-                                            treatment_cond=treatment_cond, memory=memory, clip=clip)
+                                            treatment_cond=treatment_cond, memory=memory, clip=clip, model_type=model_type)
         self.loss_fn = loss_fn
         self.dim = dim
         self.w = w
@@ -288,9 +297,6 @@ class MLP_conditional_memory_sde_noise(torch.nn.Module):
         result = self.forward_train(x)
         return torch.cat([result, torch.zeros_like(x[:,1:-1])], dim=1)
 
-def mse_loss(pred, true):
-    return torch.mean((pred - true) ** 2)
-
 class Noise_MLP_Cond_Memory_Module(torch.nn.Module):
     def __init__(self, treatment_cond, memory=3, dim=2, w=64, time_varying=True, conditional=True, lr=1e-6, sigma=0.1, 
                  loss_fn=mse_loss, metrics=['mse_loss', 'l1_loss'], implementation="ODE", sde_noise=0.1, clip=None, naming=None):
@@ -337,44 +343,3 @@ class Noise_MLP_Cond_Memory_Module(torch.nn.Module):
         t_model = t * data_t_diff + t0.unsqueeze(1)
         futuretime = t1 - t_model
         return x, ut, t_model, futuretime, t
-
-class MLP_Cond_Memory_Module(torch.nn.Module):
-    def __init__(self, treatment_cond, memory=3, dim=2, w=64, time_varying=True, conditional=True, lr=1e-6, sigma=0.1, 
-                 loss_fn=mse_loss, metrics=['mse_loss', 'l1_loss'], implementation="ODE", sde_noise=0.1, clip=None, naming=None):
-        super().__init__()
-        self.model = MLP_conditional_memory(dim=dim, w=w, time_varying=time_varying, conditional=conditional, 
-                                            treatment_cond=treatment_cond, memory=memory, clip=clip)
-        self.loss_fn = loss_fn
-        self.dim = dim
-        self.w = w
-        self.time_varying = time_varying
-        self.conditional = conditional
-        self.treatment_cond = treatment_cond
-        self.lr = lr
-        self.sigma = sigma
-        self.metrics = metrics
-        self.implementation = implementation
-        self.memory = memory
-        self.sde_noise = sde_noise
-        self.clip = clip
-
-    def forward(self, x):
-        return self.model(x)
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        return optimizer
-
-    def __convert_tensor__(self, tensor):
-        return tensor.to(torch.float32)
-
-    def __x_processing__(self, x0, x1, t0, t1):
-        t = torch.rand(x0.shape[0], 1).to(x0.device)
-        mu_t = x0 * (1 - t) + x1 * t
-        data_t_diff = (t1 - t0).unsqueeze(1)
-        x = mu_t + self.sigma * torch.randn(x0.shape[0], self.dim).to(x0.device)
-        ut = (x1 - x0) / (data_t_diff + 1e-4)
-        t_model = t * data_t_diff + t0.unsqueeze(1)
-        futuretime = t1 - t_model
-        return x, ut, t_model, futuretime, t
-
