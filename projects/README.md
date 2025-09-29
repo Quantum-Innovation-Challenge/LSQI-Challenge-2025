@@ -1,11 +1,27 @@
-# Projects Overview
+---
+number: 1 
+title: Team QuantumDose: Quantum-inspired Improvement in PK/PD Modeling and Prediction Pipeline
+topic: general
+team_leads:
+  - Dr. Prineha Narang (UCLA) prineha@ucla.edu
 
-This folder contains all the sub-folders with the individual team projects. Make sure that you develop your code project in a folder located in this projects folder.
+contributors:
 
-We are managing all projects in this way to have a good oversight of all submissions.
+- Jack Diab (UCLA) @JackNDiab
+- Byoungwoo Kang (UCLA) @
+- Nothando Khumalo (UCLA) nkhumalo@g.ucla.edu
+- Aman Mehta (UCLA) mehtaaman@ucla.edu
+- Dr. William Munizzi (UCLA) wmunizzi17@ucla.edu
+- Scott Nie (UCLA) nies@ucla.edu
 
-Make also sure that when you open up a pull request to submit your project to this repo to have the necessary license file (MIT or Apache 2.0) located in your project folder.
+# github: <your-github-account>/<your-repo-name>
 
-The project folder names will consist of the project number and the team name, e.g. "07_PKPD-QuantSimulators". If the team name is too long, then the folder will be changed to "07_Project".
+---
 
-Via the github issues board (https://github.com/Quantum-Innovation-Challenge/LSQI-Challenge-2025/issues) we will have a more dedicated overview of all contributions.
+Our project aims to explore the advantages of using techniques form quantum computing and AI development at three separate stages of the PK/PD modeling and dosage prediction pipeline. We will look into learning a hamiltonian model, using quantum statistical methods for fitting, and then making future patient predictions via quantum neural-network techniques. All of these stages fit together in a cohesive workflow that we believe will enhance the efficacy of this process.
+
+
+References:
+- E. Sibieude, A. Khandelwal, P. Girard, J. S. Hesthaven, and N. Terranova, “Population pharmacokinetic model selection assisted by machine learning”, Journal of Pharmacokinetics and Pharmacodynamics 49 (Apr., 2022) 257–270.
+- Z. Liu and Z. Zhang, “Quantum-inspired hamiltonian monte carlo for bayesian sampling”, 2020.
+- N. J. Browning, F. A. Faber, and O. Anatole von Lilienfeld, Gpu-accelerated approximate kernel method for quantum machine learning, The Journal of Chemical Physics 157 (12, 2022) 214801
