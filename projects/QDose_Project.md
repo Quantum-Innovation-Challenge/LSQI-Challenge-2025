@@ -15,7 +15,6 @@ contributors:
 - Scott Nie (UCLA) @snie5
 
 # github: JackNDiab/QDose
-
 --> Project proposal is included as a pdf titled 'QDose_Submission.pdf'
 ---
 
