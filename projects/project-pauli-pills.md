@@ -1,28 +1,25 @@
-**Team:** pauli's pills
+---
+number: 1 # maintainers adjust
+title: Pauli’s Pills — Validating Few‑Sample Quantum ML for PK/PD Dose Selection
+topic: pkpd
+team_leads:
+  - Leena Anthony (FHNW) @Anthony-Leena
+  - Artemiy Burov (FHNW) @tyrolize
 
-**Update:** We follow a **QCNN** Phase‑1 plan. A mechanistic PK core simulates regimen‑aware exposure curves \(C(t)\), and a parameter‑efficient **Quantum Convolutional Neural Network (QCNN)** with mid‑circuit pooling predicts the probability that all PD values stay below a clinical threshold across a steady‑state window. We focus on **few‑sample generalization** with patient‑level k‑fold, learning curves, bootstrap CIs, and calibration.
+# Comment these lines to hide them
+contributors:
+  - Johannes Mosbacher (FHNW)
+  - Martin Kuentz (FHNW)
+  - Abdullah Kahraman (FHNW / SIB)
+  - Nicolas Piro (Independent)
 
-**Team leads / official participants (2):**
-- Artemiy Burov (FHNW) — @tyrolize
-- Leena Anthony (FHNW) — @Anthony-Leena
+github: tyrolize/paulis-pills
+# youtube_video: <add-id-after-upload>
+---
 
-**Contributors:** Johannes Mosbacher (FHNW), Martin Kuentz (FHNW), Abdullah Kahraman (FHNW/SIB), Nicolas Piro (Independent)
+**Summary.** We adapt **few‑sample QML generalization** protocols (from medical imaging) to **PK/PD** dose‑selection. We define patient‑level few‑shot splits, learning curves, calibration & variance reporting, and compare **quantum kernels (QSVM/QKRR)** and **tensor‑network** regressors to a **population PK/PD** baseline on the synthetic dataset. Focus: **transparent generalization** under small‑N constraints, with ablations and explicit **resource estimates**.
 
-**Repository (code):** https://github.com/tyrolize/paulis-pills
+**Official project participants:** Leena Anthony (FHNW), Artemiy Burov (FHNW).  
+**Links:** Code & docs — https://github.com/tyrolize/paulis-pills
 
-**Project summary (QCNN-only):**
-- **PK core**: one‑compartment with first‑order absorption/elimination; allometric scaling and random effects; covariates (BW, COMED).
-- **QCNN**: amplitude‑encodes daily (64→6 qubits) / weekly (128→7 qubits) exposure sequences, re‑uploads covariates with \(R_y(\cdot)\); two conv–pool blocks with mid‑circuit measurements; (~45) parameters; SU(4) head.
-- **Evaluation**: patient‑level k‑fold (k=5), small‑N learning curves \(N\in\{4,8,16,32\}\), bootstrap CIs, calibration (reliability/ECE), and ablations (qubits, depth, parameters, shots).
-- **Dose selection**: select minimal dose s.t. \(\hat\pi(d,s)\ge q\), with \(q\in\{0.90,0.75\}\), over daily/weekly grids.
-
-**Computational resource estimate (QCNN):**
-- Parameters \(P\approx45\), parameter‑shift ⇒ \(2P\) circuits/step. With 1024 shots, 150 steps, 5 folds:  
-  circuits ≈ \(90\times 150\times 5 = 67{,}500\); shots ≈ \(67{,}500\times 1{,}024 = 69{,}120{,}000\).  
-- CPU 8–16 vCPU, 20–32 GB RAM, (~2–6) h depending on parallelism. (Can halve shots or steps if needed.)
-
-**License confirmation:** Code under **Apache‑2.0**; documentation/report under **CC BY 4.0**.
-
-**Linking the initialization issue:** Refs #2
-
-@tyrolize @Anthony-Leena
+**References:** to be added in the Phase 1 report.
