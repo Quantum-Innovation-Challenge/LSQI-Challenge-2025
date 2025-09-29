@@ -3,7 +3,7 @@ number: 1
 title: Team QuantumDose: Quantum-inspired Improvement in PK-PD Modeling and Prediction Pipeline
 topic: general
 team_leads:
-  - Dr. Prineha Narang (UCLA) @prineha
+- Dr. Prineha Narang (UCLA) @prineha
 
 contributors:
 
