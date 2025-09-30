@@ -47,6 +47,7 @@ This work is part of the Quantum Innovation Challenge 2025, organised by the Bio
 Our project proposal introduces a novel approach for clinical trial optimization and Pharmacokinetics/Pharmacodynamics (PK/PD) modelling through a Physics-Informed Hybrid Quantum Neural Network, which, to the best of our knowledge, has not yet been applied in this context, and the preliminary results of our prototype show promising outcomes. Figure 1 summarizes the method
 
 <img width="791" height="470" alt="PI-hqnn2 drawio (1)" src="https://github.com/user-attachments/assets/d5dcd0c7-bdd1-43e8-b5c2-cab86ee8060a" />
+
 **Figure1**: he general architecture of the Physics-Informed Hybrid Quantum Neural Network (PI-HQNN) for PK/PD modeling
 
 ---
