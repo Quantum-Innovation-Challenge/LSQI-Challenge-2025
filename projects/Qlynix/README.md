@@ -59,9 +59,9 @@ Note thatall figures in this work were created by the authors. Resources estimat
 
 Attached to this repository, all the prepared documentation can be found:
 
-- [Draft research paper summarizing all the work that was done](projects/Qlynix/PI_HQNN_For_PKPD_Modeling.pdf)
-- [Organised notebook containing prototyping code](projects/Qlynix/Qlynix_Submission_Notebook.ipynb)  
-- [Detailed work plan for the next phases](projects/Qlynix/Qlynix_Project_Plan.pdf)
+- [Draft research paper summarizing all the work that was done](/PI_HQNN_For_PKPD_Modeling.pdf)
+- [Organised notebook containing prototyping code](/Qlynix_Submission_Notebook.ipynb)  
+- [Detailed work plan for the next phases](/Qlynix_Project_Plan.pdf)
 
 ---
 
