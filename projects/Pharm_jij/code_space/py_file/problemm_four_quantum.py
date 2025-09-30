@@ -1,0 +1,537 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+No-concomitant medication scenario (COMED=0) with QLSTM PD(t)
+-------------------------------------------------------------
+- Quantum LSTM surrogate (PennyLane + PyTorch) for PD(t)
+- Loads a trained checkpoint if available; otherwise trains then saves one
+- Loads/rebuilds time & PD scalers from Phase-1 data
+- Monte Carlo over Phase-1 BW distribution (empirical resampling + jitter); COMED forced to 0
+- QD grid auto-extends (0.5 mg steps) until it crosses 90% success
+- Outputs dose→success curves + minimal 90% dose (mean & 95% CI) for QD and QW
+
+Outputs (saved under --out):
+  - qd_no_comed_dose_success_qlstm.png
+  - qw_no_comed_dose_success_qlstm.png
+  - qd_no_comed_dose_success_summary_qlstm.csv
+  - qw_no_comed_dose_success_summary_qlstm.csv
+  - qlstm_ckpt.pt (if trained)
+  - time_scaler_qd.pkl, y_scaler_pd.pkl
+
+Requirements:
+  pip install pennylane pennylane-qchem torch numpy pandas scikit-learn matplotlib tqdm joblib
+"""
+
+import os, math, argparse, warnings
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+warnings.filterwarnings("ignore")
+plt.rcParams["figure.dpi"] = 140
+
+from tqdm.auto import tqdm
+from sklearn.preprocessing import StandardScaler
+import joblib
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import pennylane as qml
+
+# ----------------------------- Defaults -----------------------------
+DATA_CSV_DEFAULT  = "EstData.csv"
+OUTDIR_DEFAULT    = "results_no_comed_qlstm"
+CKPT_DEFAULT      = "qlstm_ckpt.pt"
+
+STRICT_THRESHOLD  = 3.3
+TAU_QD            = 24.0
+TAU_QW            = 168.0
+
+QD_MAX_DOSE       = 40.0
+QD_STEP           = 0.5
+QW_MAX_DOSE       = 400.0
+QW_STEP           = 5.0
+
+K_EXPAND          = 10
+R_MC_DEFAULT      = 200
+BW_JITTER_GCV     = 0.10
+SEED_DEFAULT      = 42
+
+TIME_SCALER_NAME  = "time_scaler_qd.pkl"
+Y_SCALER_NAME     = "y_scaler_pd.pkl"
+
+COLOR_LINE        = "#0000CD"
+COLOR_FILL        = "#0000CD"
+
+# QLSTM training defaults
+T_POINTS           = 24
+VAL_SPLIT          = 0.2
+N_QUBITS_DEFAULT   = 4
+N_QLAYERS_DEFAULT  = 1
+HIDDEN_SIZE        = 64
+BATCH_SIZE         = 8
+MAX_EPOCHS         = 300
+PATIENCE           = 120
+MIN_DELTA          = 1e-3
+LR                 = 1e-3
+WD                 = 5e-4
+
+# ----------------------------- QLSTM -----------------------------
+class QLSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, n_qubits=4, n_qlayers=1,
+                 batch_first=True, backend="default.qubit", input_scale_pi=True):
+        super().__init__()
+        self.n_inputs = input_size
+        self.hidden_size = hidden_size
+        self.concat_size = self.n_inputs + self.hidden_size
+        self.n_qubits = n_qubits
+        self.n_qlayers = n_qlayers
+        self.batch_first = batch_first
+        self.backend = backend
+        self.input_scale_pi = input_scale_pi
+
+        self.wires = [f"w{i}" for i in range(n_qubits)]
+        self.dev = qml.device(backend, wires=self.wires, shots=None)
+
+        def _circuit(inputs, weights):
+            qml.AngleEmbedding(inputs, wires=self.wires)
+            qml.BasicEntanglerLayers(weights, wires=self.wires)
+            return [qml.expval(qml.PauliZ(w)) for w in self.wires]
+
+        self.qnode = qml.QNode(_circuit, self.dev, interface="torch", diff_method="backprop")
+        self.weight_shapes = {"weights": (n_qlayers, n_qubits)}
+        self.vqc = qml.qnn.TorchLayer(self.qnode, self.weight_shapes)
+
+        self.cl_in  = nn.Linear(self.concat_size, n_qubits)
+        self.act_in = nn.Tanh()
+        self.cl_out = nn.Linear(n_qubits, hidden_size)
+
+        self.proj_forget = nn.Linear(hidden_size, hidden_size)
+        self.proj_input  = nn.Linear(hidden_size, hidden_size)
+        self.proj_update = nn.Linear(hidden_size, hidden_size)
+        self.proj_output = nn.Linear(hidden_size, hidden_size)
+
+        for m in [self.cl_in, self.cl_out, self.proj_forget, self.proj_input, self.proj_update, self.proj_output]:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, gain=0.5)
+                nn.init.zeros_(m.bias)
+
+        print(f"[QLSTM] n_qubits={n_qubits}, n_qlayers={n_qlayers}")
+
+    def _angles(self, vt):
+        y = self.cl_in(vt)
+        y = self.act_in(y)
+        return math.pi * y if self.input_scale_pi else y
+
+    def forward(self, x):
+        if self.batch_first:
+            B, T, F = x.size()
+        else:
+            T, B, F = x.size()
+            x = x.transpose(0, 1)
+
+        h_t = torch.zeros(B, self.hidden_size, device=x.device)
+        c_t = torch.zeros(B, self.hidden_size, device=x.device)
+        out_seq = []
+
+        for t in range(T):
+            xt = x[:, t, :]
+            vt = torch.cat([h_t, xt], dim=1)
+            z  = self.vqc(self._angles(vt))
+            qh = self.cl_out(z)
+
+            f_t = torch.sigmoid(self.proj_forget(qh))
+            i_t = torch.sigmoid(self.proj_input(qh))
+            g_t = torch.tanh   (self.proj_update(qh))
+            o_t = torch.sigmoid(self.proj_output(qh))
+
+            c_t = f_t * c_t + i_t * g_t
+            h_t = o_t * torch.tanh(c_t)
+            out_seq.append(h_t.unsqueeze(1))
+
+        return torch.cat(out_seq, dim=1)  # (B,T,H)
+
+class QLSTMRegressor(nn.Module):
+    def __init__(self, input_size, hidden_size=64, n_qubits=4, n_qlayers=1, backend="default.qubit"):
+        super().__init__()
+        self.qlstm = QLSTM(input_size, hidden_size, n_qubits, n_qlayers, backend=backend)
+        self.head  = nn.Linear(hidden_size, 1)
+        print(f"[QLSTMRegressor] Qubits in use: {self.qlstm.n_qubits}")
+
+    def forward(self, x):
+        h = self.qlstm(x)      # (B,T,H)
+        y = self.head(h)       # (B,T,1)
+        return y
+
+# ----------------------------- Helpers -----------------------------
+def save_scaler(scaler: StandardScaler, path: str):
+    joblib.dump(scaler, path)
+
+def load_scaler(path: str) -> StandardScaler:
+    return joblib.load(path)
+
+def load_raw(data_csv: str):
+    df = pd.read_csv(data_csv)
+    for c in ["ID","BW","COMED","DOSE","TIME","DV","EVID","MDV","DVID","AMT"]:
+        if c in df.columns: df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = df.dropna(subset=["ID","TIME","EVID","MDV","DVID"])
+    df = df[df["TIME"] >= 0].sort_values(["ID","TIME"]).reset_index(drop=True)
+    return df
+
+def last_window(s, tau, min_points=3, max_expand=8.0):
+    if s.empty: return s.iloc[0:0].copy()
+    tmax = float(s["TIME"].max()); best, bestn = s.iloc[0:0].copy(), 0; f=1.0
+    while f <= max_expand:
+        w = s[(s["TIME"]>=tmax - tau*f) & (s["TIME"]<=tmax)]
+        if len(w)>bestn: best, bestn = w.copy(), len(w)
+        if len(w) >= min_points: return w.sort_values("TIME")
+        f *= 1.5
+    return best.sort_values("TIME")
+
+def resample_to_grid(time, value, grid):
+    if len(time)==0: return np.full_like(grid, np.nan, float)
+    ix = np.argsort(time)
+    t, v = np.asarray(time)[ix], np.asarray(value)[ix]
+    out = np.interp(grid, t - t.min(), v, left=np.nan, right=np.nan)
+    if np.isnan(out[0]):
+        first = np.nanmin(np.where(~np.isnan(out))[0])
+        out[:first] = out[first]
+    m = np.isnan(out)
+    if m.any():
+        out[m] = np.interp(np.where(m)[0], np.where(~m)[0], out[~m])
+    return out
+
+def build_phase1_seq(df: pd.DataFrame, tau_default=TAU_QD, T=T_POINTS):
+    obs = df[(df["EVID"]==0) & (df["MDV"]==0)]
+    pd_obs = obs[obs["DVID"]==2].copy()
+    times = np.linspace(0, tau_default, T)
+    rowsX, rowsY = [], []
+    # per-ID dosing summary
+    dose_tbl = []
+    for sid, s in df.groupby("ID"):
+        d = s[s["EVID"]==1]
+        if len(d):
+            dose = float(d["AMT"].median()) if d["AMT"].notna().any() else float(s["DOSE"].replace(0,np.nan).median())
+            tt = np.sort(d["TIME"].dropna().unique())
+            tau = float(np.median(np.diff(tt))) if len(tt) >= 2 else TAU_QD
+        else:
+            dose = float(s["DOSE"].replace(0,np.nan).median()); tau = TAU_QD
+        bw = float(s["BW"].dropna().iloc[0]) if s["BW"].notna().any() else np.nan
+        com = int(s["COMED"].dropna().iloc[0]) if s["COMED"].notna().any() else 0
+        dose_tbl.append({"ID":int(sid),"BW":bw,"COMED":com,"DOSE_MG":dose,"INTERVAL_H":tau})
+    dose_tbl = pd.DataFrame(dose_tbl)
+
+    meta_bw = []
+    for sid, s in pd_obs.groupby("ID"):
+        row = dose_tbl[dose_tbl["ID"]==sid]
+        if row.empty: continue
+        tau = float(row["INTERVAL_H"].iloc[0]) if np.isfinite(row["INTERVAL_H"].iloc[0]) else TAU_QD
+        w = last_window(s.sort_values("TIME"), tau, 3, 8.0)
+        if w.empty: continue
+        vg = resample_to_grid(w["TIME"].values.astype(float), w["DV"].values.astype(float), times)
+        if np.isnan(vg).all(): continue
+
+        bw = float(row["BW"].iloc[0]) if np.isfinite(row["BW"].iloc[0]) else np.nan
+        com = int(row["COMED"].iloc[0]) if np.isfinite(row["COMED"].iloc[0]) else 0
+        dose = float(row["DOSE_MG"].iloc[0]) if np.isfinite(row["DOSE_MG"].iloc[0]) else 0.0
+        dose_mgkg = dose / bw if (np.isfinite(bw) and bw>0) else 0.0
+
+        X_i = np.column_stack([
+            times / TAU_QD,                # time in [0,1]
+            np.full(T, dose_mgkg, float),  # mg/kg
+            np.full(T, com, int)           # COMED flag
+        ])
+        rowsX.append(X_i); rowsY.append(vg); meta_bw.append(bw)
+
+    X = np.asarray(rowsX, float)  # (N,T,3)
+    y = np.asarray(rowsY, float)  # (N,T)
+    meta_bw = np.asarray(meta_bw, float)
+    return X, y, meta_bw, times
+
+def fit_or_load_scalers(outdir: Path, df: pd.DataFrame):
+    tsp = outdir / TIME_SCALER_NAME
+    ysp = outdir / Y_SCALER_NAME
+    if tsp.exists() and ysp.exists():
+        print("Found saved scalers. Loading …")
+        return load_scaler(tsp.as_posix()), load_scaler(ysp.as_posix())
+    print("Fitting scalers from Phase-1 data …")
+    X, y, _, _ = build_phase1_seq(df)
+    time_scaler = StandardScaler().fit(X[...,0].reshape(-1,1))
+    y_scaler    = StandardScaler().fit(y.reshape(-1,1))
+    save_scaler(time_scaler, tsp.as_posix()); save_scaler(y_scaler, ysp.as_posix())
+    print("✓ Scalers fitted & saved.")
+    return time_scaler, y_scaler
+
+class SeqDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y[...,None], dtype=torch.float32)
+    def __len__(self): return self.X.shape[0]
+    def __getitem__(self, i): return self.X[i], self.y[i]
+
+def train_or_load_model(ckpt_path: Path, df: pd.DataFrame, time_scaler: StandardScaler,
+                        y_scaler: StandardScaler, n_qubits: int, n_qlayers: int):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = QLSTMRegressor(input_size=3, hidden_size=HIDDEN_SIZE, n_qubits=n_qubits,
+                           n_qlayers=n_qlayers, backend="default.qubit").to(device)
+    if ckpt_path.exists():
+        model.load_state_dict(torch.load(ckpt_path.as_posix(), map_location=device))
+        print(f"✓ Loaded checkpoint: {ckpt_path}")
+        return model, device
+
+    print("No checkpoint found — training QLSTM on Phase-1 PD sequences …")
+    from sklearn.model_selection import train_test_split
+    from sklearn.utils import shuffle as skshuffle
+
+    X, y, _, _ = build_phase1_seq(df)
+    Xs = X.copy()
+    Xs[...,0] = time_scaler.transform(Xs[...,0])
+    yz = y_scaler.transform(y.reshape(-1,1)).reshape(y.shape)
+
+    Xs, yz = skshuffle(Xs, yz, random_state=SEED_DEFAULT)
+    X_tr, X_va, y_tr, y_va = train_test_split(Xs, yz, test_size=VAL_SPLIT, random_state=SEED_DEFAULT)
+    train_ds = SeqDataset(X_tr, y_tr); val_ds = SeqDataset(X_va, y_va)
+    train_dl = torch.utils.data.DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
+    val_dl   = torch.utils.data.DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False)
+
+    opt = optim.Adam(model.parameters(), lr=LR, weight_decay=WD)
+    sch = optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=12, cooldown=8, min_lr=1e-5)
+    crit = nn.MSELoss()
+
+    best_val = float("inf"); best_state = None; wait=0
+    for ep in range(1, MAX_EPOCHS+1):
+        model.train(); tl=0.0
+        for xb, yb in train_dl:
+            xb, yb = xb.to(device), yb.to(device)
+            opt.zero_grad()
+            yhat = model(xb)
+            loss = crit(yhat, yb)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            tl += loss.item()*xb.size(0)
+        tl /= len(train_ds)
+
+        model.eval(); vl=0.0
+        with torch.no_grad():
+            for xb, yb in val_dl:
+                xb, yb = xb.to(device), yb.to(device)
+                yhat = model(xb)
+                loss = crit(yhat, yb)
+                vl += loss.item()*xb.size(0)
+        vl /= len(val_ds)
+        sch.step(vl)
+        print(f"Epoch {ep:03d} | train MSE {tl:.5f} | val MSE {vl:.5f}")
+
+        if vl < best_val - MIN_DELTA:
+            best_val = vl; best_state = {k:v.cpu().clone() for k,v in model.state_dict().items()}; wait=0
+        else:
+            wait += 1
+            if wait >= PATIENCE:
+                print("Early stopping."); break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    torch.save(model.state_dict(), ckpt_path.as_posix())
+    print(f"✓ Saved checkpoint: {ckpt_path}")
+    return model, device
+
+def make_batch(time_scaler: StandardScaler, TAU, Tpoints, BW, COMED, dose_mg):
+    N = len(BW)
+    tgrid = np.linspace(0, TAU, Tpoints)
+    dose_mgkg = dose_mg / np.clip(BW, 1e-6, None)
+    Xb = np.stack([
+        (tgrid/TAU) * np.ones((N, Tpoints)),      # time_norm
+        np.tile(dose_mgkg[:, None], (1, Tpoints)),
+        np.tile(COMED[:, None], (1, Tpoints)),
+    ], axis=-1).astype(float)
+    Xb[..., 0] = time_scaler.transform(Xb[..., 0])
+    return Xb, tgrid
+
+@torch.no_grad()
+def predict_qd_pd_ngml(model, device, y_scaler, time_scaler, BW, COMED, dose_mg, Tpoints=24):
+    Xb, tgrid = make_batch(time_scaler, TAU_QD, Tpoints, BW, COMED, dose_mg)
+    xb = torch.tensor(Xb, dtype=torch.float32, device=device)
+    yhat_z = model(xb).squeeze(-1).cpu().numpy()
+    yhat   = y_scaler.inverse_transform(yhat_z.reshape(-1,1)).reshape(yhat_z.shape)
+    return yhat, tgrid
+
+@torch.no_grad()
+def predict_qw_pd_ngml(model, device, y_scaler, time_scaler, BW, COMED, dose_weekly_mg, Tpoints=168):
+    Xb, tgrid = make_batch(time_scaler, TAU_QW, Tpoints, BW, COMED, dose_weekly_mg)
+    xb = torch.tensor(Xb, dtype=torch.float32, device=device)
+    yhat_z = model(xb).squeeze(-1).cpu().numpy()
+    yhat   = y_scaler.inverse_transform(yhat_z.reshape(-1,1)).reshape(yhat_z.shape)
+    return yhat, tgrid
+
+# ------------------------- MC helpers -----------------------------
+def draw_population_no_comed(rng, n_base: int, BW_per_id: np.ndarray):
+    idx = rng.integers(0, BW_per_id.size, size=n_base*K_EXPAND)
+    BW  = BW_per_id[idx] * np.exp(rng.normal(0.0, BW_JITTER_GCV, size=n_base*K_EXPAND))
+    BW  = np.clip(BW, 30.0, 200.0)
+    COM = np.zeros_like(BW, dtype=int)  # restriction: COMED=0
+    return BW, COM
+
+def mc_success_curve_qd(rng, model, device, y_scaler, time_scaler, dose_grid, N_base, BW_per_id, R):
+    succ_mat = np.zeros((R, len(dose_grid))); dose90 = np.full(R, np.nan)
+    for r in tqdm(range(R), desc="QD MC (COMED=0)"):
+        BW, COM = draw_population_no_comed(rng, N_base, BW_per_id)
+        s = []
+        for d in dose_grid:
+            yhat, _ = predict_qd_pd_ngml(model, device, y_scaler, time_scaler, BW, COM, d, Tpoints=24)
+            ok = (np.nanmax(yhat, axis=1) <= STRICT_THRESHOLD)
+            s.append(ok.mean())
+        s = np.array(s); succ_mat[r,:] = s
+        i90 = np.where(s >= 0.90)[0]
+        if i90.size: dose90[r] = float(dose_grid[i90[0]])
+    return succ_mat, dose90
+
+def mc_success_curve_qw(rng, model, device, y_scaler, time_scaler, dose_grid, N_base, BW_per_id, R):
+    succ_mat = np.zeros((R, len(dose_grid))); dose90 = np.full(R, np.nan)
+    for r in tqdm(range(R), desc="QW MC (COMED=0)"):
+        BW, COM = draw_population_no_comed(rng, N_base, BW_per_id)
+        s = []
+        for d in dose_grid:
+            yhat, _ = predict_qw_pd_ngml(model, device, y_scaler, time_scaler, BW, COM, d, Tpoints=168)
+            ok = (np.nanmax(yhat, axis=1) <= STRICT_THRESHOLD)
+            s.append(ok.mean())
+        s = np.array(s); succ_mat[r,:] = s
+        i90 = np.where(s >= 0.90)[0]
+        if i90.size: dose90[r] = float(dose_grid[i90[0]])
+    return succ_mat, dose90
+
+def summarize_curve(succ_mat, dose_grid, dose90_samples):
+    succ_mean = succ_mat.mean(axis=0)
+    succ_lo   = np.percentile(succ_mat, 2.5, axis=0)
+    succ_hi   = np.percentile(succ_mat, 97.5, axis=0)
+    if np.isfinite(dose90_samples).any():
+        d90_mean = float(np.nanmean(dose90_samples))
+        d90_ci   = (float(np.nanpercentile(dose90_samples, 2.5)),
+                    float(np.nanpercentile(dose90_samples, 97.5)))
+    else:
+        d90_mean, d90_ci = np.nan, (np.nan, np.nan)
+    idx = np.where(succ_mean >= 0.90)[0]
+    d90_mean_curve = float(dose_grid[idx[0]]) if idx.size else np.nan
+    return succ_mean, succ_lo, succ_hi, d90_mean, d90_ci, d90_mean_curve
+
+def run_qd_until_cross(rng, model, device, y_scaler, time_scaler, N_base, BW_per_id,
+                       start=0.5, step=0.5, initial_max=40.0,
+                       extend_by=20.0, max_extends=10, hard_cap=240.0,
+                       R=R_MC_DEFAULT):
+    grid = np.arange(start, initial_max + step, step)
+    succ_qd, d90_qd = mc_success_curve_qd(rng, model, device, y_scaler, time_scaler, grid, N_base, BW_per_id, R)
+    succ_mean = succ_qd.mean(axis=0)
+    if float(np.nanmax(succ_mean)) >= 0.90:
+        return grid, succ_qd, d90_qd
+    extends = 0
+    while extends < max_extends and grid[-1] < hard_cap:
+        new_top = min(grid[-1] + extend_by, hard_cap)
+        grid = np.arange(step, new_top + step, step)
+        succ_qd, d90_qd = mc_success_curve_qd(rng, model, device, y_scaler, time_scaler, grid, N_base, BW_per_id, R)
+        succ_mean = succ_qd.mean(axis=0)
+        if float(np.nanmax(succ_mean)) >= 0.90:
+            return grid, succ_qd, d90_qd
+        extends += 1
+    return grid, succ_qd, d90_qd
+
+def fmt_ci(ci):
+    return f"[{ci[0]:.1f}, {ci[1]:.1f}] mg" if np.isfinite(ci[0]) and np.isfinite(ci[1]) else "N/A"
+
+# ----------------------------- Main -----------------------------
+def main():
+    ap = argparse.ArgumentParser(description="No-concomitant (COMED=0) dose scan using a QLSTM PD(t) model")
+    ap.add_argument("--data",   type=str, default=DATA_CSV_DEFAULT, help="Path to EstData.csv")
+    ap.add_argument("--ckpt",   type=str, default=CKPT_DEFAULT,     help="Path to QLSTM checkpoint (.pt)")
+    ap.add_argument("--out",    type=str, default=OUTDIR_DEFAULT,   help="Output directory")
+    ap.add_argument("--mc",     type=int, default=R_MC_DEFAULT,     help="MC replicates")
+    ap.add_argument("--seed",   type=int, default=SEED_DEFAULT,     help="Random seed")
+    ap.add_argument("--qubits", type=int, default=N_QUBITS_DEFAULT, help="QLSTM qubits")
+    ap.add_argument("--qlayers",type=int, default=N_QLAYERS_DEFAULT,help="QLSTM layers")
+    args = ap.parse_args()
+
+    outdir = Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
+    np.random.seed(args.seed); torch.manual_seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+
+    # Data & scalers
+    df_phase1 = load_raw(args.data)
+    time_scaler, y_scaler = fit_or_load_scalers(outdir, df_phase1)
+
+    # Model
+    model, device = train_or_load_model(Path(args.ckpt), df_phase1, time_scaler, y_scaler,
+                                        n_qubits=int(args.qubits), n_qlayers=int(args.qlayers))
+
+    # Phase-1 PD subject count
+    obs = df_phase1[(df_phase1["EVID"]==0) & (df_phase1["MDV"]==0)]
+    N_base = int(obs[obs["DVID"]==2]["ID"].nunique())
+    if N_base < 1: N_base = 48
+
+    # Empirical BW per ID
+    BW_per_id = []
+    for sid, s in df_phase1.groupby("ID"):
+        if s["BW"].notna().any():
+            BW_per_id.append(float(s["BW"].dropna().iloc[0]))
+    BW_per_id = np.array([b for b in BW_per_id if np.isfinite(b) and b>0])
+    if BW_per_id.size == 0: BW_per_id = np.array([70.0])
+
+    print(f"Phase-1 PD subjects: {N_base}")
+    print("Restriction applied: COMED=0 for all simulated subjects")
+    print("Running QD and QW Monte-Carlo …")
+
+    # QD: auto-extend until crossing
+    qd_grid, succ_qd, d90_qd = run_qd_until_cross(
+        rng, model, device, y_scaler, time_scaler, N_base, BW_per_id,
+        start=QD_STEP, step=QD_STEP, initial_max=QD_MAX_DOSE,
+        extend_by=20.0, max_extends=10, hard_cap=240.0, R=args.mc
+    )
+
+    # QW: fixed grid
+    qw_grid = np.arange(QW_STEP, QW_MAX_DOSE + QW_STEP, QW_STEP)
+    succ_qw, d90_qw = mc_success_curve_qw(rng, model, device, y_scaler, time_scaler, qw_grid, N_base, BW_per_id, R=args.mc)
+
+    qd_mean, qd_lo, qd_hi, qd_d90, qd_d90_ci, qd_d90_curve = summarize_curve(succ_qd, qd_grid, d90_qd)
+    qw_mean, qw_lo, qw_hi, qw_d90, qw_d90_ci, qw_d90_curve = summarize_curve(succ_qw, qw_grid, d90_qw)
+
+    # -------- Plots & CSV --------
+    plt.figure(figsize=(8,5))
+    plt.plot(qd_grid, qd_mean, label="QD mean success (COMED=0, QLSTM)", color=COLOR_LINE)
+    plt.fill_between(qd_grid, qd_lo, qd_hi, alpha=0.20, label="95% MC band", color=COLOR_FILL)
+    plt.axhline(0.90, color="tab:red", ls="--", lw=1.2, label="90% target")
+    plt.ylim(0,1); plt.xlabel("Once-daily dose (mg)")
+    plt.ylabel(f"Success fraction (PD(t) ≤ {STRICT_THRESHOLD} ng/mL over 24 h)")
+    plt.grid(True, alpha=0.35); plt.legend(); plt.tight_layout()
+    qd_png = outdir / "qd_no_comed_dose_success_qlstm.png"
+    plt.savefig(qd_png.as_posix(), dpi=180); plt.close()
+
+    plt.figure(figsize=(8,5))
+    plt.plot(qw_grid, qw_mean, label="QW mean success (COMED=0, QLSTM)", color=COLOR_LINE)
+    plt.fill_between(qw_grid, qw_lo, qw_hi, alpha=0.20, label="95% MC band", color=COLOR_FILL)
+    plt.axhline(0.90, color="tab:red", ls="--", lw=1.2, label="90% target")
+    plt.ylim(0,1); plt.xlabel("Once-weekly dose (mg)")
+    plt.ylabel(f"Success fraction (PD(t) ≤ {STRICT_THRESHOLD} ng/mL over 168 h)")
+    plt.grid(True, alpha=0.35); plt.legend(); plt.tight_layout()
+    qw_png = outdir / "qw_no_comed_dose_success_qlstm.png"
+    plt.savefig(qw_png.as_posix(), dpi=180); plt.close()
+
+    pd.DataFrame({"qd_dose_mg": qd_grid, "succ_mean": qd_mean, "succ_lo2p5": qd_lo, "succ_hi97p5": qd_hi})\
+      .to_csv(outdir / "qd_no_comed_dose_success_summary_qlstm.csv", index=False)
+    pd.DataFrame({"qw_dose_mg": qw_grid, "succ_mean": qw_mean, "succ_lo2p5": qw_lo, "succ_hi97p5": qw_hi})\
+      .to_csv(outdir / "qw_no_comed_dose_success_summary_qlstm.csv", index=False)
+
+    # -------- Console summary --------
+    print("\n=== No-concomitant medication scenario (COMED=0, QLSTM) ===")
+    print(f"QD minimal dose for ≥90% success (MC mean): {qd_d90:.1f} mg  | 95% CI: {fmt_ci(qd_d90_ci)}")
+    print(f"QD minimal dose (on mean curve):            {qd_d90_curve:.1f} mg")
+    print(f"QW minimal dose for ≥90% success (MC mean): {qw_d90:.0f} mg  | 95% CI: {fmt_ci(qw_d90_ci)}")
+    print(f"QW minimal dose (on mean curve):            {qw_d90_curve:.0f} mg")
+
+    print("\nSaved:")
+    print(f"  {qd_png}")
+    print(f"  {qw_png}")
+    print(f"  {outdir/'qd_no_comed_dose_success_summary_qlstm.csv'}")
+    print(f"  {outdir/'qw_no_comed_dose_success_summary_qlstm.csv'}")
+    print(f"  {Path(args.ckpt).resolve()}")
+
+if __name__ == "__main__":
+    main()
