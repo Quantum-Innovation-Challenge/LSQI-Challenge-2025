@@ -10,7 +10,7 @@ team_leads:
 
 contributors:
 
-- Onur Denizgezer (Çanakkale Onsekiz Mart University)
+- Onur Denizseven (Çanakkale Onsekiz Mart University)
 
 # github: OsmanS444/LSQI-Challenge-2025
 
