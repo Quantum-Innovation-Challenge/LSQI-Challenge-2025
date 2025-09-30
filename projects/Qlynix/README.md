@@ -55,13 +55,13 @@ Our project proposal introduces a novel approach for clinical trial optimization
 
 Our team started working on the project in the second week of September — around the webinar — and we had to discover the field of pharmacometrics from scratch within a short period and apply our knowledge in Quantum Computing and Artificial Intelligence to it. We were able to accumulate a good amount of knowledge to present this project proposal.
 
-Note thatall figures in this work were created by the authors
+Note thatall figures in this work were created by the authors. Resources estimation is included in the reports.
 
 Attached to this repository, all the prepared documentation can be found:
 
-- [Draft research paper summarizing all the work that was done](!link)
-- [Organised notebook containing prototyping code](!link)  
-- [Detailed work plan for the next phases](!here)
+- [Draft research paper summarizing all the work that was done](projects/Qlynix/PI_HQNN_For_PKPD_Modeling.pdf)
+- [Organised notebook containing prototyping code](projects/Qlynix/Qlynix_Submission_Notebook.ipynb)  
+- [Detailed work plan for the next phases](projects/Qlynix/Qlynix_Project_Plan.pdf)
 
 ---
 
