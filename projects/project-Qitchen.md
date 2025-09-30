@@ -12,7 +12,7 @@ contributors:
 
 - Onur Denizseven (Çanakkale Onsekiz Mart University)
 
-# github: OsmanS444/LSQI-Challenge-2025
+github: OsmanS444/LSQI-Challenge-2025
 
 # youtube_video: <your-video-id>
 
