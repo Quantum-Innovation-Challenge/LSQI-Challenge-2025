@@ -1,6 +1,6 @@
 ---
 number: 1
-title: Predict of DV value via VQNN
+title: Predict of Pharmacokinetics via VQNN
 topic: <topic-name>
 team_leads:
   - PhD. Sabri Gündüz (Çanakkale Onsekiz Mart University, Türkiye) @sabrigunduz
