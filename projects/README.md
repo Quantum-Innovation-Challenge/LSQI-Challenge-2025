@@ -3,8 +3,8 @@ number: 1
 title: Predict of DV value via VQNN
 topic: <topic-name>
 team_leads:
-  - Sabri Gündüz (Çanakkale Onsekiz Mart University) @sabrigunduz
-  - Osman Semi Ceylan (Çanakkale Onsekiz Mart University) @OsmanS4444
+  - PhD. Sabri Gündüz (Çanakkale Onsekiz Mart University) @sabrigunduz
+  - PhD. Candidate Osman Semi Ceylan (Çanakkale Onsekiz Mart University) @OsmanS4444
 
 # Comment these lines by prepending the pound symbol (#) to each line to hide these elements
 
