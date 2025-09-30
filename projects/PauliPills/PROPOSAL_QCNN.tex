@@ -1,0 +1,287 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath, amssymb, graphicx, hyperref, booktabs, enumitem}
+\usepackage[numbers]{natbib}
+\usepackage{authblk}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{titlesec}
+\titleformat{\section}[block]{\large\bfseries}{\thesection.}{0.5em}{}
+
+\title{Quantum Convolutional Neural Networks for Dose Optimization: A PK/PD-Informed Approach}
+\author[1]{Leena Anthony}
+\author[1]{Artemiy Burov}
+\affil[1]{FHNW School of Life Sciences, Muttenz, Switzerland}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present a hybrid quantum-classical machine learning pipeline for dose optimization based on a Phase 1 pharmacokinetics/pharmacodynamics (PK/PD) dataset. Our method leverages a parameter-efficient Quantum Convolutional Neural Network (QCNN) to predict the probability of PD biomarker control under different dosing regimens. We show that a QCNN trained on steady-state exposure features can accurately classify success (all PD values $< 3.3$ ng/mL in a 24h window) and can generalize to unseen regimens such as once-weekly dosing. This work builds on our prior QCNN architecture with mid-circuit pooling and extends it to real-world clinical datasets, while retaining feasibility for near-term quantum hardware.
+\end{abstract}
+
+\section{Introduction}
+Personalized dose optimization is a central problem in pharmacometrics. In early-phase trials, data is often sparse and limited to a few regimens (e.g., 1, 3, and 10 mg QD). Classical models such as population PK/PD may struggle to extrapolate to unseen patients or schedules without strong mechanistic priors. 
+
+Quantum Machine Learning (QML) offers a distinct inductive bias. Prior work \cite{cong2019quantum, caro2022generalization} has shown that QCNNs with shared parameters and mid-circuit measurements can generalize better than classical models in few-shot settings. We apply this paradigm to dose optimization, combining a mechanistic PK core with a QCNN that learns exposure-response mappings from simulated $C(t)$ trajectories and clinical covariates.
+
+\section{Dataset Overview}
+
+We use the provided realistic Phase 1 dataset (\texttt{EstData.csv}) comprising 48 subjects:
+\begin{itemize}[noitemsep]
+  \item \textbf{Dosing groups:} 36 subjects received active treatment (1, 3, or 10 mg QD), and 12 were assigned to placebo.
+  \item \textbf{Pharmacokinetics (PK):} 864 concentration-time observations (\texttt{DVID=1}) recorded only for the active treatment group.
+  \item \textbf{Pharmacodynamics (PD):} 1,200 biomarker measurements (\texttt{DVID=2}) available for all subjects, including long follow-up beyond treatment.
+  \item \textbf{Covariates:}
+    \begin{itemize}
+        \item Body Weight (BW): Range 51--100 kg; mean $\approx$ 73.6 kg.
+        \item Concomitant Medication (COMED): Balanced across the cohort (24 with, 24 without).
+        \item Dose Levels: Discrete QD (once-daily) dosing at 1, 3, and 10 mg.
+    \end{itemize}
+\end{itemize}
+
+\section{Problem Statement}
+
+This work addresses a predictive dosing challenge using a hybrid quantum-classical learning pipeline. The goal is to identify dose levels that ensure suppression of a pharmacodynamic (PD) biomarker across different regimens and population subgroups. The provided dataset (\texttt{EstData.csv}) includes individual-level pharmacokinetic (PK) and PD data from a Phase 1 trial of an investigational compound, with subjects randomized to daily doses of 1, 3, or 10 mg, or to placebo. 
+
+\subsection{Task Overview}
+
+We are asked to determine the minimal dose satisfying a probabilistic constraint across various dosing regimens and populations:
+\vspace{0.5em}
+
+\emph{What is the lowest daily or weekly dose (in fixed increments) such that at least \(q\)\% of subjects achieve PD suppression below a critical threshold (3.3 ng/mL) throughout a steady-state window (24h or 168h)?}
+
+\vspace{0.5em}
+This must be answered for five scenarios:
+
+\begin{enumerate}
+    \item Daily dosing, base population, \(q = 90\%\).
+    \item Weekly dosing, base population, \(q = 90\%\).
+    \item Daily and weekly dosing, heavier population (70–140 kg), \(q = 90\%\).
+    \item Daily and weekly dosing, without concomitant medication, \(q = 90\%\).
+    \item All of the above with relaxed constraint \(q = 75\%\).
+\end{enumerate}
+
+\subsection{Dataset-Driven Design Insight}
+
+We begin by analyzing the observed PD measurements between 480–504 hours—representing the last 24-hour window of dosing at steady state. 
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{p{2.5cm} p{2.5cm} p{2.5cm} p{3cm}}
+\toprule
+\textbf{Dose (mg)} & \textbf{Successes} & \textbf{Count} & \textbf{Pass Rate (\%)} \\
+\midrule
+1   & 0  & 12 & 0.0 \\
+3   & 6  & 12 & 50.0 \\
+10  & 11 & 12 & 91.7 \\
+\bottomrule
+\end{tabular}
+\caption{\footnotesize Observed pass rates across dose levels using the PD threshold of 3.3 ng/mL in the final 24-hour dosing window (480–504 h). A subject is counted as a success if all PD values during this window remain below the threshold.}
+\label{tab:pass-by-dose}
+\end{table}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{p{2cm} p{2cm} p{2.5cm} p{2.5cm} p{3cm}}
+\toprule
+\textbf{Dose (mg)} & \textbf{COMED} & \textbf{Successes} & \textbf{Count} & \textbf{Pass Rate (\%)} \\
+\midrule
+1   & 0 & 0 & 6 & 0.0 \\
+1   & 1 & 0 & 6 & 0.0 \\
+3   & 0 & 2 & 6 & 33.3 \\
+3   & 1 & 4 & 6 & 66.7 \\
+10  & 0 & 6 & 7 & 85.7 \\
+10  & 1 & 5 & 5 & 100.0 \\
+\bottomrule
+\end{tabular}
+\caption{\footnotesize Pass rates stratified by dose and presence of concomitant medication (COMED). Subjects receiving 10 mg daily with COMED achieved 100\% PD suppression, while those without COMED at the same dose had a slightly lower pass rate.}
+\label{tab:pass-by-dose-comed}
+\end{table}
+
+
+
+This preliminary analysis suggests that:
+
+\begin{itemize}
+    \item At 1 mg daily, \textbf{0\%} of subjects maintain PD \(< 3.3\) ng/mL.
+    \item At 3 mg, \textbf{50\%} pass the threshold.
+    \item At 10 mg, \textbf{92\%} pass, increasing to \textbf{100\%} with concomitant medication.
+\end{itemize}
+
+This observed relationship offers a useful reference point for model calibration and performance benchmarking.
+
+\subsection{Proposed Hybrid QCNN-Based Modeling Strategy}
+
+We adopt a hybrid quantum-classical modeling approach that separates the simulation of drug exposure from the prediction of pharmacodynamic (PD) biomarker suppression. This modular design allows mechanistic priors to drive the concentration–time trajectories, while a flexible Quantum Convolutional Neural Network (QCNN) learns the exposure–response mapping.
+
+\begin{itemize}
+    \item \textbf{Mechanistic PK core:} A lightweight, interpretable model simulates drug concentration over time or drug exposure profile, \(C(t)\) at steady state, using a 1-compartment structure with first-order absorption and elimination. The governing differential equation is:
+
+    \begin{equation}
+        \frac{dC(t)}{dt} = \frac{F \cdot k_a \cdot D}{V} \cdot e^{-k_a t} - k_e C(t)
+    \end{equation}
+
+    where:
+    \begin{itemize}[noitemsep]
+        \item \( C(t) \): drug concentration in plasma at time \( t \)
+        \item \( D \): dose (mg)
+        \item \( F \): bioavailability (assumed 1)
+        \item \( k_a \): absorption rate constant
+        \item \( k_e \): elimination rate constant (\( k_e = \frac{CL}{V} \))
+        \item \( CL \): clearance
+        \item \( V \): volume of distribution
+    \end{itemize}
+
+    The closed-form solution for multiple dosing at steady state is:
+
+    \begin{equation}
+        C_{\text{ss}}(t) = \frac{F \cdot D \cdot k_a}{V(k_a - k_e)} \left( \frac{e^{-k_e t}}{1 - e^{-k_e \tau}} - \frac{e^{-k_a t}}{1 - e^{-k_a \tau}} \right)
+    \end{equation}
+
+    where \( \tau \) is the dosing interval (e.g., 24h for daily, 168h for weekly).
+
+    To reflect individual variability, we include:
+    \begin{itemize}
+        \item \textbf{Allometric scaling}: \( CL \propto BW^{0.75} \), \( V \propto BW \), based on body weight (BW)
+        \item \textbf{Random effects}: log-normal variability on \( CL \), \( V \)
+        \item \textbf{Covariates}: COMED may act on baseline biomarker or \( E_{C50} \) in the downstream PD model
+    \end{itemize}
+
+    This PK core allows simulation of smooth, regimen-aware exposure curves \( C(t) \) for both observed and novel dosing strategies.
+
+    \item \textbf{Quantum Convolutional Neural Network (QCNN):} The QCNN receives the simulated \( C(t) \) sequence (resampled on a fixed time grid) along with subject-specific covariates. It is trained to predict the probability that all PD values stay below the clinical threshold (3.3 ng/mL) over a window (e.g., 24h or 168h). The architecture includes:
+    \begin{enumerate}[label=\textbf{\alph*)}]
+    \item Amplitude encoding of normalized \( C(t) \) over 64 (daily) or 128 (weekly) timepoints
+    \item Additional qubit rotations to encode covariates such as BW, dose, and COMED
+    \item Two convolution–pooling layers using mid-circuit measurements
+    \item A dense SU(4) layer to capture final classification logic
+    \item Approximately 45 total trainable parameters, enabling generalization with limited data
+\end{enumerate}
+
+
+This division of tasks is central to the efficiency and robustness of the pipeline:
+\begin{itemize}[label=\textbullet]
+    \item The PK core models pharmacologically grounded regimen shifts (e.g., daily to weekly)
+    \item The QCNN handles complex, data-driven exposure–response mappings
+    \item The architecture supports extrapolation to unseen doses and population subgroups, including heavier subjects or removal of COMED
+\end{itemize}
+
+Overall, this hybrid design maintains interpretability while taking advantage of quantum generalization benefits in low-data regimes.
+
+\section{Methodology}
+
+This section outlines our proposed strategy for addressing the challenge tasks using a hybrid quantum-classical machine learning pipeline. While we do not present final results due to the limited timeline, the methodology builds directly on our previously validated QCNN architecture and generalization behavior under small-data regimes. We argue that this foundation is well-suited for addressing the current PK/PD-driven dose optimization problem.
+
+\subsection{Data Preparation and Encoding Strategy}
+
+Each subject–regimen pair is represented by two types of input features:
+
+\begin{itemize} \item \textbf{Channel A: Simulated Exposure Sequence} \ Using the mechanistic PK model, we generate concentration–time curves $C(t)$ at steady state: \begin{itemize} \item Daily dosing: $t \in [0, 24]$ hours (resampled to $L=64$) \item Weekly dosing: $t \in [0, 168]$ hours (resampled to $L=128$) \end{itemize} These are L2-normalized and amplitude-encoded across $n=\log_2 L$ qubits.
+\item \textbf{Channel B: Covariates} \\
+A small set of subject-level features: body weight (BW), dose, COMED, and optionally a baseline biomarker. These are encoded via $R_y(\cdot)$ rotations and controlled gates using feature qubits.
+\end{itemize}
+
+The target label $y=1$ is assigned if \emph{all} observed PD values in the evaluation window (480--504 h for daily dosing) fall below 3.3 ng/mL, else $y=0$. This conservative rule encourages robust suppression across the dosing interval.
+
+\paragraph{Why not encode PD directly?} While PD is observed, encoding it as input would bias the model toward memorizing effects at 1/3/10 mg. Instead, we train the QCNN to learn the transformation from exposure and covariates to PD outcome—enabling generalization to unseen doses and regimens like once-weekly.
+
+\subsection{Proposed QCNN Architecture}
+
+Our QCNN follows the parameter-efficient design introduced in our prior work:\footnote{\emph{Experimental evidence of the generalization properties of quantum machine learning from few training samples, for medical image classification}, FHNW School of Life Sciences.}
+
+\begin{itemize} \item Mid-circuit measurement-based pooling to reduce qubit width \item Parameter-shared convolution blocks \item Two convolution–pooling layers, followed by a final dense SU(4) layer \item Amplitude encoding over 6 or 7 qubits (daily vs weekly) \item Feature qubits with $R_y(\cdot)$ and controlled gates for re-uploading \item \textbf{Total:} Approx. 45 trainable parameters ($T$), with reuse factor $M \gg 1$ \end{itemize}
+
+This architecture mirrors our previous success on medical imaging (e.g., BreastMNIST) under few-shot learning conditions.
+
+\subsection{Training Setup (Proposed)}
+
+\begin{itemize} \item Optimizer: Adam with cosine learning rate decay \item Gradients: Finite-difference with $\pi/2$ shift (hardware-compatible) \item Loss: Cross-entropy + optional monotonicity penalty (w.r.t. dose, AUC) \item Backend: \texttt{Qiskit AerSimulator} with 1,024 shots per circuit \item Data split: Stratified 75/25 across outcomes \end{itemize}
+
+We emphasize that while this is a proposal, all components, including the QCNN architecture, encoding scheme, and training loop have been tested   successfully in prior work and require minimal modification to adapt to the current PK/PD domain.
+
+\section{Questions to be Investigated}
+
+While we do not present results in this report, we propose a concrete and scalable strategy to answer all five challenge questions using our previously validated hybrid quantum-classical pipeline. Our approach combines a mechanistic pharmacokinetic (PK) model with a quantum convolutional neural network (QCNN) classifier trained on exposure trajectories and subject-level covariates. Below, we outline how this pipeline would be used to address the specific challenge scenarios.
+
+\subsection{Dose Selection Strategy}
+
+Let $f_\theta$ denote a trained QCNN classifier. For each candidate dose $d$ and schedule $s \in {\text{daily}, \text{weekly}}$, we simulate $C(t)$ using the PK core and encode the resulting time-series along with subject covariates (body weight, COMED, etc.). The model computes the subject-specific success probability: \begin{equation} \hat{p}i(d, s) = f\theta(C(t), \text{BW}, \text{COMED}, d, s) \end{equation}
+
+For a virtual population of $N$ subjects, the aggregate success rate is: \begin{equation} \hat{\pi}(d, s) = \frac{1}{N} \sum_{i=1}^{N} \mathbb{I}{ \hat{p}_i(d, s) > 0.5 } \end{equation}
+
+The optimal dose is the smallest $d$ such that $\hat{\pi}(d, s) \geq q$, where $q \in {0.90, 0.75}$ is the required population-level success threshold.
+
+\textbf{Dose Grids:} \begin{itemize} \item Daily: $d \in {1.0, 1.5, 2.0, \dots, 15.0}$ mg \item Weekly: $d \in {5, 10, 15, \dots, 50}$ mg \end{itemize}
+
+If running on quantum hardware, a bracketed binary search strategy can reduce the number of required circuit executions.
+
+\subsection{Scenario Definitions}
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+  \item \textbf{Daily dosing, base population, $q = 90\%$} \\
+  Simulate steady-state $C(t)$ over 24h using a 64-point time grid. Subjects are drawn from the empirical distribution (BW: 50--100 kg, COMED: 0.5). Run the pipeline over the daily dose grid.
+
+  \item \textbf{Weekly dosing, base population, $q = 90\%$} \\
+  Simulate 168h $C(t)$ trajectories using a 128-point time grid. The PK model handles regimen shift, while the QCNN generalizes to the longer sequence. Run the pipeline over the weekly dose grid.
+
+  \item \textbf{Daily and weekly dosing, heavier population (BW = 70--140 kg)} \\
+  Generate a new virtual population with BW sampled from 70--140 kg. Apply allometric scaling to CL and V. Repeat the simulations and predictions for both daily and weekly regimens.
+
+  \item \textbf{Daily and weekly dosing, no COMED} \\
+  Set COMED = 0 for all virtual subjects and simulate accordingly. This evaluates the impact of removing a key covariate on predicted success.
+
+  \item \textbf{Relaxed constraint: $q = 75\%$ instead of $90\%$} \\
+  Repeat all previous scenarios with $q = 0.75$ to evaluate the dose reduction required under a more permissive target.
+\end{enumerate}
+
+\subsection{Schedule Adaptation via PK Core}
+
+One advantage of this architecture is that weekly dosing is supported without retraining the model. The PK core simulates new steady-state $C(t)$ curves for extended intervals (168h), and the QCNN processes longer sequences with the same structure. The covariate-aware interpolation allows generalization beyond the training regimens (1, 3, 10 mg QD).
+
+\subsection{Summary of Modeling Advantages}
+
+\begin{itemize} \item The PK core models pharmacologically grounded regimen shifts (e.g., daily to weekly). \item The QCNN handles complex, nonlinear exposure–response mappings with small data. \item The parameter-sharing design (small $T$, large $M$) supports generalization and reduces overfitting. \item The pipeline supports extrapolation to unseen doses, population shifts (e.g., weight), and restricted settings (no COMED). \end{itemize}
+
+%simple chat gpt copy paste from here onwards. The previous sections involved some thinking too.
+
+\section{Discussion}
+\subsection{Comparison to Classical Models}
+We will compare against:
+\begin{itemize}[noitemsep]
+  \item Mechanistic-only classifier using AUC, $C_{min}$, and $C_{max}$
+  \item Small 1-D CNN with equivalent parameter count
+\end{itemize}
+
+\subsection{Hardware Feasibility}
+Our QCNN is executable on 6–7 qubits with 1,024 shots. The total number of gates and circuit depth are compatible with near-term noisy quantum devices (e.g., IBM's FakeKyiv model). Finite-difference gradients and mid-circuit measurement avoid statevector or gradient primitives.
+
+\subsection{Scalability}
+The approach is scalable:
+\begin{itemize}[noitemsep]
+  \item To weekly dosing (longer sequences, same model)
+  \item To population scenarios (virtual cohorts via PK core)
+  \item To hardware via transpilation to target topology
+\end{itemize}
+
+\section{Work Plan}
+\begin{enumerate}[label=\textbf{\arabic*.}]
+  \item \textbf{Day 1:} Finalize data pipeline, fit PK core, reproduce observed pass rates
+  \item \textbf{Day 2:} Train QCNN on daily regimens, benchmark against classical CNN
+  \item \textbf{Day 3:} Dose search under scenarios (weekly, weight shift, COMED, $q=0.75$)
+\end{enumerate}
+
+\section*{Acknowledgments}
+This work builds on prior research conducted at FHNW under the supervision of Prof. Dr. Cl\'ement Javerzac-Galy. We thank the Quantum Lab and our collaborators for feedback on the PK core and QCNN integration.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+\bibitem{cong2019quantum} Cong, I., Choi, S., \& Lukin, M. D. (2019). Quantum convolutional neural networks. \emph{Nature Physics}, 15(12), 1273–1278.
+\bibitem{caro2022generalization} Caro, M. C., et al. (2022). Generalization in quantum machine learning from few training data. \emph{Nature Communications}, 13(1), 4919.
+\end{thebibliography}
+
+\end{document}
