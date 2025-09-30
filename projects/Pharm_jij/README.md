@@ -13,11 +13,11 @@ contributors:
   - "Hasan Almatrouk (Imperial College London) <hasan.almatrouk23@imperial.ac.uk>"
 
 # Optional fields; set to null or remove if unused
-github: null
-youtube_video: null
+github: "louis-chen-jij/LSQI-Challenge-2025"
 ---
 
-abstract: |-
-  QuSOP is a hardware-agnostic, regulator-aligned framework that pairs a quantum-enhanced LSTM predictor with quantum Monte Carlo  to enable uncertainty-aware, chance-constrained dose selection in PK/PD. 
-  References:
+Abstract: 
+QuSOP is a hardware-agnostic, regulator-aligned framework that pairs a quantum-enhanced LSTM predictor with quantum Monte Carlo  to enable uncertainty-aware, chance-constrained dose selection in PK/PD. 
+
+References:
 
