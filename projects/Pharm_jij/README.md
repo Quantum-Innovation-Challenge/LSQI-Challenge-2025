@@ -15,8 +15,9 @@ contributors:
 # Optional fields; set to null or remove if unused
 github: null
 youtube_video: null
+---
 
 abstract: |-
   QuSOP is a hardware-agnostic, regulator-aligned framework that pairs a quantum-enhanced LSTM predictor with quantum Monte Carlo  to enable uncertainty-aware, chance-constrained dose selection in PK/PD. 
   References:
----
+
