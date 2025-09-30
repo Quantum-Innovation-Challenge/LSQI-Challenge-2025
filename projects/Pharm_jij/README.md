@@ -11,6 +11,7 @@ team_leads:
 contributors:
   - "Felix Burt (Imperial College London) <f.burt23@imperial.ac.uk>"
   - "Hasan Almatrouk (Imperial College London) <hasan.almatrouk23@imperial.ac.uk>"
+  - "Sofia Moliner Bobo (Imperial College London) <sofia.moliner23@imperial.ac.uk>"
 
 # Optional fields; set to null or remove if unused
 github: "louis-chen-jij/LSQI-Challenge-2025"
