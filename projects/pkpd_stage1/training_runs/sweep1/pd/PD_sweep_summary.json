@@ -1,0 +1,110 @@
+[
+  {
+    "run": "PD_trial000",
+    "best": {
+      "val_loss": 2.999212462097168,
+      "loss": 2.999212462097168,
+      "acc": 0.124862,
+      "reg_mse_masked": 0.7228566898765564,
+      "n": 500000
+    },
+    "ckpt": "/pscratch/sd/b/by1997/pkpd/training_runs/sweep1/pd/PD_trial000_best.pt",
+    "cfg": {
+      "d_model": 64,
+      "nhead": 4,
+      "num_layers": 4,
+      "dim_feedforward": 256,
+      "dropout": 0.1,
+      "lr": 0.0003,
+      "weight_decay": 0.01,
+      "lambda_reg": 1.0,
+      "batch_size": 256,
+      "epochs": 3,
+      "warmup_frac": 0.05,
+      "amp": true,
+      "grad_clip": 1.0,
+      "num_workers": 2
+    }
+  },
+  {
+    "run": "PD_trial001",
+    "best": {
+      "val_loss": 2.98965562852478,
+      "loss": 2.98965562852478,
+      "acc": 0.129638,
+      "reg_mse_masked": 0.7207813202247619,
+      "n": 500000
+    },
+    "ckpt": "/pscratch/sd/b/by1997/pkpd/training_runs/sweep1/pd/PD_trial001_best.pt",
+    "cfg": {
+      "d_model": 128,
+      "nhead": 8,
+      "num_layers": 4,
+      "dim_feedforward": 512,
+      "dropout": 0.1,
+      "lr": 0.0003,
+      "weight_decay": 0.01,
+      "lambda_reg": 1.0,
+      "batch_size": 256,
+      "epochs": 3,
+      "warmup_frac": 0.05,
+      "amp": true,
+      "grad_clip": 1.0,
+      "num_workers": 2
+    }
+  },
+  {
+    "run": "PD_trial002",
+    "best": {
+      "val_loss": 2.7805983345947265,
+      "loss": 2.7805983345947265,
+      "acc": 0.12658,
+      "reg_mse_masked": 0.7227154406700135,
+      "n": 500000
+    },
+    "ckpt": "/pscratch/sd/b/by1997/pkpd/training_runs/sweep1/pd/PD_trial002_best.pt",
+    "cfg": {
+      "d_model": 128,
+      "nhead": 8,
+      "num_layers": 6,
+      "dim_feedforward": 512,
+      "dropout": 0.15,
+      "lr": 0.0002,
+      "weight_decay": 0.02,
+      "lambda_reg": 0.7,
+      "batch_size": 256,
+      "epochs": 3,
+      "warmup_frac": 0.08,
+      "amp": true,
+      "grad_clip": 1.0,
+      "num_workers": 2
+    }
+  },
+  {
+    "run": "PD_trial003",
+    "best": {
+      "val_loss": 3.136870728683472,
+      "loss": 3.136870728683472,
+      "acc": 0.129106,
+      "reg_mse_masked": 0.7212959001655579,
+      "n": 500000
+    },
+    "ckpt": "/pscratch/sd/b/by1997/pkpd/training_runs/sweep1/pd/PD_trial003_best.pt",
+    "cfg": {
+      "d_model": 192,
+      "nhead": 8,
+      "num_layers": 6,
+      "dim_feedforward": 768,
+      "dropout": 0.15,
+      "lr": 0.0002,
+      "weight_decay": 0.01,
+      "lambda_reg": 1.2,
+      "batch_size": 192,
+      "epochs": 3,
+      "warmup_frac": 0.08,
+      "amp": true,
+      "grad_clip": 1.0,
+      "num_workers": 2
+    }
+  }
+]

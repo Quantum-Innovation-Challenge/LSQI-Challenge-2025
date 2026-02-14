@@ -1,0 +1,21 @@
+{
+  "d_model": 128,
+  "nhead": 8,
+  "num_layers": 8,
+  "dim_feedforward": 512,
+  "dropout": 0.1,
+  "lr": 0.0002,
+  "weight_decay": 0.01,
+  "lambda_reg": 1.0,
+  "batch_size": 256,
+  "epochs": 150,
+  "warmup_frac": 0.08,
+  "amp": true,
+  "grad_clip": 1.0,
+  "num_workers": 2,
+  "eval_batch_size": 1024,
+  "save_every_epochs": 10,
+  "patience": 0,
+  "min_delta": 0,
+  "label_smoothing": 0
+}
